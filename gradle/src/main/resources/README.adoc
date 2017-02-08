@@ -1,0 +1,197 @@
+= pbs-autoreport subsystem
+// http://plantuml.com/sequence.html
+// https://powerman.name/doc/asciidoc
+// Generate documentation:
+//   asciidoctor -r asciidoctor-diagram diagrams.adoc
+
+== Overviewxx
+
+pbs-autoreport subsystem is responsible for automatic broadcast report generation. It is a PBS service run on tomcat (PBS) on the active pilot blade.
+
+Alert broadcast reports are generated once per month and once per year.
+Reports base on alerts statistics stored in the *AlertCellStatistics* DB table (table is updated when alert competes/expires).
+Report is generated at 2:15 of the second day of a month. Day and time are defined in the auto-report.properties file.
+
+NOTE: It is possible that alert can broadcasts for 24h. When this alert is send at the last second of previous month
+(e.g. 2017-01-31 23:59:59) statistics can be updated in next month (e.g. 2017-02-01 23:59:59).
+While statistics of this alert need to be in report for month when this alert was send (e.g. for 2017-01)
+we wait until second day of the month with report generation.
+
+== Reports
+
+Report is a CSV file. CSV header labels are defined in the auto-report_labels.properties file.
+
+.Example generated report file
+----
+Report period,Count of alerts,Count of targeted cells,Count of successfully distributed cells,Average percentage rate of successfully distributed cells
+01.11.2016 - 30.11.2016,1,10,5,50%
+----
+
+Generated reports are placed in */sftp_access/data_files/bmc_reports* directory.
+
+* Month reports are named: report_month_<start_report_date>_<end_report_date>.csv (e.g. report_month_2016-12-01_2016-12-31.csv)
+* Year reports are named: report_year_<start_report_date>_<end_report_date>.csv (e.g. report_year_2015-01-01_2015-12-31.csv)
+
+
+== REST API
+
+Subsystem supports following REST actions:
+
+* status - returns when next report will be generated and currently loaded configuration
+[source]
+----
+hp23-0-0-0:/root-# wget http://localhost:8088/pbs-autoreport/status -O - -o /tmp/out
+OK
+Configuration{autoReportRunDayHour=16, autoReportRunDayMinute=51, autoReportRunMonthDay=27, autoReportDir='/sftp_access/data_files/bmc_reports', successfulLoadTime=2016-05-04T11:38:01.726, isAutoReportsEnabled=false}
+Task scheduled at: 2016-05-27T16:51 (delay 1998400862ms)
+----
+* reload - reload configuration (properties files, sitedata, license)
+[source]
+----
+hp23-0-0-0:/root-# wget http://localhost:8088/pbs-autoreport/reload -O - -o /tmp/out
+OK
+----
+* generate - generate report, if month is not specified then report is generated for whole year
+[source]
+----
+hp23-0-0-0:/root-# wget http://localhost:8088/pbs-autoreport/generate/year/2016/month/1 -O - -o /tmp/out
+OK
+Generate report for range: 01.01.2016 - 31.01.2016
+----
+
+== Code flow diagrams
+
+[plantuml, autoreport_initialize_flow, svg]
+----
+title Initialize auto report service
+
+participant "PBS\nAutoReportService" as PBS_AutoReportService #669999
+participant "PBS\nConfiguration" as PBS_Configuration #669999
+participant "PBS\nAutoReportTask" as PBS_AutoReportTask #669999
+participant "DB\nAlertCellStatistics" as DB_AlertCellStatistics #996633
+
+PBS_AutoReportService	    -> PBS_AutoReportService: onLoad
+activate PBS_AutoReportService
+note right: called by PBS-base
+
+PBS_AutoReportService       -> PBS_Configuration
+note right
+    read configuration from
+    properties files/DB sitedata/license
+end note
+deactivate PBS_AutoReportService
+
+PBS_AutoReportService	    -> PBS_AutoReportService: main
+activate PBS_AutoReportService
+note right: called by PBS-base
+
+PBS_AutoReportService	    -> PBS_AutoReportService: generateOldReports
+activate PBS_AutoReportService
+PBS_AutoReportService       -> DB_AlertCellStatistics: queryAlertCellStatistics
+note right
+    Get all statistics older than 2 month than next run with empty generation date.
+end note
+PBS_AutoReportService       -> PBS_AutoReportTask: run
+activate PBS_AutoReportTask
+note right
+    Run month report generation for each skipped month.
+    Run year report generation for each skipped year (excluding current year).
+end note
+PBS_AutoReportTask       -> DB_AlertCellStatistics: updateGenerationDate
+note right: Update generation time for each month report.
+deactivate PBS_AutoReportTask
+deactivate PBS_AutoReportService
+
+loop while (running)
+    PBS_AutoReportService	    -> PBS_AutoReportService: mainIteration
+    activate PBS_AutoReportService
+
+    note over PBS_AutoReportService, PBS_AutoReportTask
+     Note that configuration was loaded in onLoad or in previous interation.
+    end note
+
+    alt is report generating for December?
+        PBS_AutoReportService	    -> PBS_AutoReportTask
+        note right
+            schedule year report generation
+            When task will be called it will reload configuration.
+        end note
+
+        PBS_AutoReportService	    -> PBS_AutoReportService
+        note right: wait until AutoReportTask finish
+    end
+
+    PBS_AutoReportService	    -> PBS_AutoReportTask
+    note right
+        schedule month report generation
+        When task will be called it will reload configuration.
+        Set option to:
+        * Update generation time.
+        * Insert next month entry.
+        * Remove old entries.
+    end note
+
+
+    PBS_AutoReportService	    -> PBS_AutoReportService
+    note right: wait until AutoReportTask finish
+    deactivate PBS_AutoReportService
+    deactivate PBS_AutoReportService
+    deactivate PBS_AutoReportService
+end
+----
+
+[plantuml, autoreport_generate_flow, svg]
+----
+title Automatically generate reports
+
+participant "PBS\nAutoReportTask" as PBS_AutoReportTask #669999
+participant "PBS\nReportGenerator" as PBS_ReportGenerator #669999
+participant "PBS\nConfiguration" as PBS_Configuration #669999
+participant "DB\nAlertCellStatistics" as DB_AlertCellStatistics #996633
+participant "Common Doc\nCsvDocGenerator" as DOC_CsvDocGenerator #999966
+participant "SFTP dir" as HD #ffccff
+
+PBS_AutoReportTask	    -> PBS_AutoReportTask: run()
+note right: called by executor
+activate PBS_AutoReportTask
+
+PBS_AutoReportTask       -> PBS_Configuration
+note right
+    read configuration from
+    properties files/DB sitedata/license
+end note
+
+PBS_AutoReportTask	    -> PBS_AutoReportTask
+note right: verify if feature is enabled
+
+PBS_AutoReportTask	    -> PBS_ReportGenerator: generate()
+note right: generate month report
+activate PBS_ReportGenerator
+
+PBS_ReportGenerator     -> DB_AlertCellStatistics
+note right: get alert statistics from DB
+
+PBS_ReportGenerator	    -> DOC_CsvDocGenerator
+note right: generate CSV
+
+PBS_ReportGenerator	    -> HD
+note right: save CSV in SFTP directory
+deactivate PBS_ReportGenerator
+
+alt should generation date be updated?
+    PBS_AutoReportTask      -> DB_AlertCellStatistics
+    note right: update generation date
+end
+
+alt should next month entry be inserted?
+    PBS_AutoReportTask      -> DB_AlertCellStatistics
+    note right: insert new entry for next month
+end
+
+alt should old entries be removed?
+    PBS_AutoReportTask	    -> DB_AlertCellStatistics
+    note right: remove entries older than 3 years from DB
+end
+
+deactivate PBS_AutoReportTask
+----
