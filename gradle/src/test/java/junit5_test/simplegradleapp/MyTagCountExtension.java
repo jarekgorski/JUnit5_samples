@@ -26,18 +26,19 @@ public class MyTagCountExtension implements BeforeTestExecutionCallback, AfterAl
             }
             currentValue++;
             context.getParent().get().getStore(NAMESPACE).get(TAG_COUNT_KEY, HashMap.class).put(foundTag, currentValue);
-            System.out.println("Currently executed " + currentValue + " tests with tag: " + foundTag);
             tagCountSummaryMap.put(foundTag, Long.toString(currentValue));
         }
-        System.out.println("Test " + context.getDisplayName() + " executed!");
+        //  int i = 2/0; // will break the execution of tests
         context.publishReportEntry(tagCountSummaryMap);
     }
 
     @Override
     public void afterAll(ContainerExtensionContext context) throws Exception {
-        // not called after all executed!
-        double x = 2/0;
-        System.out.println("after all");
+        if (context.getStore(NAMESPACE).get(TAG_COUNT_KEY, HashMap.class) != null) {
+            for(Map.Entry<String, Long> entry : ((Map<String, Long>) context.getStore(NAMESPACE).get(TAG_COUNT_KEY, HashMap.class)).entrySet()) {
+                System.out.println("Executed " + entry.getValue() + " tests with tag: " + entry.getKey());
+            }
+        }
     }
 
     @Override

@@ -5,6 +5,10 @@ import org.junit.jupiter.api.*;
 @DisplayName("My first JUnit 5 class ‰")
 public class CalculatorTest {
 
+	CalculatorTest () {
+		System.out.println("Test class instantiated");
+	}
+
 	@BeforeAll
 	static void setup() {
 		System.out.println("Before tests");

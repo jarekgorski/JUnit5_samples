@@ -14,6 +14,7 @@ public class NestedTest {
 	@BeforeEach
 	void setup() {
 		items = new LinkedList<>();
+		System.out.println("before each");
 	}
 	
 	@Test

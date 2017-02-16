@@ -13,7 +13,7 @@ class DynamicTestingTest {
 	@TestFactory
 	List<DynamicTest> createDynamicTestsReturnAsCollection() {
 		return Arrays.asList(
-				DynamicTest.dynamicTest("A dynamic test", () -> Assertions.assertTrue(true)),
+				DynamicTest.dynamicTest("A dynamic test", () -> Assertions.assertTrue(false)),
 				DynamicTest.dynamicTest("Another dynamic test", () -> Assertions.assertEquals(6, 3 * 2)));
 	}
 	
@@ -21,7 +21,7 @@ class DynamicTestingTest {
 	Stream<DynamicTest> dynamicSquareRootTest() {
 	return Stream.of(
 			new Object[][] {{2d, 4d}, {3d, 9d}, {4d, 16d}})
-				.map(i -> DynamicTest.dynamicTest("Square root test",
+				.map(i -> DynamicTest.dynamicTest("Square root test for " + i[0] + " and " + i[1],
 						() -> Assertions.assertEquals(i[0], Math.sqrt((double)i[1])))); 
 	
 	}
